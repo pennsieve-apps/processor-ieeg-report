@@ -1,0 +1,47 @@
+{% extends "base.html.j2" %}
+{% import "macros.html.j2" as M with context %}
+{% block title %}{{ s.subject }} – {{ title }}{% endblock %}
+{% block body %}
+<p class="small"><a href="index.html">← {{ title }}</a></p>
+<h1>{{ s.subject }}</h1>
+<p class="sub">{{ s.n_recordings }} recording(s){% if s.n_seizures %}, {{ s.n_seizures }} seizure(s){% endif %}.
+{% if s.labels %}Labels known: {{ s.labels | join(", ") }}.{% else %}No expert labels.{% endif %}</p>
+{{ M.ruo() }}
+<nav>
+  {% if s.ii %}<a href="#interictal">Interictal biomarkers</a>{% endif %}
+  {% if s.seizures %}<a href="#seizures">Seizure onset</a>{% endif %}
+  {% if s.qc %}<a href="#qc">QC</a>{% endif %}
+  <a href="index.html#methods">Methods &amp; citations</a>
+</nav>
+
+{% if s.ii %}
+<h2 id="interictal">Interictal Biomarker Mapping</h2>
+{% for n in ii.notes %}<p class="small muted">{{ n }}</p>{% endfor %}
+{{ M.interictal_subject(s.ii, names, measures_info, targets, max_channels) }}
+{{ M.caveats(s.ii.measures | map("extract", what_ii) | list) }}
+{% endif %}
+
+{% if s.seizures %}
+<h2 id="seizures">Seizure Onset Localisation</h2>
+{% set pat = sz.patients | selectattr("subject", "equalto", s.subject) | list %}
+{% if pat %}
+<div class="wrap"><table>
+<tr><th>group</th><th class="num">seizures</th>{% for m in sz.methods %}<th class="num">{{ method_names[m] }}<br><span class="muted small">median AUC</span></th>{% endfor %}<th class="num">|onset error|<br><span class="muted small">median</span></th><th class="num">detected in tolerance</th></tr>
+{% for r in pat %}<tr><td>{{ r.group }}</td><td class="num">{{ r.n_seizures }}</td>{% for m in sz.methods %}<td class="num">{{ r[m ~ "_auc_median"] | num(2) }}</td>{% endfor %}<td class="num">{{ r.abs_onset_error_median_s | num(1) }}{% if r.abs_onset_error_median_s is not none %} s{% endif %}</td><td class="num">{{ r.detected_within_tolerance or "–" }}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+<p class="small">Seizures: {% for z in s.seizures %}<a href="#{{ z.recording_id }}">{{ z.task or z.recording_id }}</a>{{ " · " if not loop.last }}{% endfor %}</p>
+{% for z in s.seizures %}
+{{ M.seizure_block(z, method_names, top_k) }}
+{% endfor %}
+{{ M.caveats(sz.methods | map("extract", what_sz) | list) }}
+{% endif %}
+
+{% if s.qc %}
+<h2 id="qc">QC</h2>
+{{ M.qc_table(s.qc, false) }}
+{% for r in s.qc if r.qc_figure %}
+<figure><img src="figures/{{ r.qc_figure }}" alt="ieeg-prep QC of {{ r.recording_id }}" loading="lazy"><figcaption>ieeg-prep QC plot, <code>{{ r.recording_id }}</code>{% if r.notes %}. {{ r.notes | join("; ") }}{% endif %}</figcaption></figure>
+{% endfor %}
+{% endif %}
+{% endblock %}

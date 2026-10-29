@@ -1,0 +1,104 @@
+{% extends "base.html.j2" %}
+{% import "macros.html.j2" as M with context %}
+{% block body %}
+<h1>{{ title }}</h1>
+<p class="sub">
+  {% if modes %}{{ modes | join(" · ") }}. {% else %}No analysis outputs among the inputs. {% endif %}
+  {{ subjects | length }} subject(s), {{ study.recordings | length }} recording(s). Generated {{ generated_at }}.
+</p>
+{{ M.ruo() }}
+<nav>
+  <a href="#subjects">Subjects</a>
+  {% if ii and ii.subjects %}<a href="#interictal">Interictal biomarkers</a>{% endif %}
+  {% if sz %}<a href="#seizures">Seizure onset</a>{% endif %}
+  {% if qc %}<a href="#qc">QC</a>{% endif %}
+  <a href="#methods">Methods &amp; citations</a>
+  <a href="#data">Input data</a>
+</nav>
+{{ M.errors_box(errors) }}
+{% for n in study.notes %}<p class="small muted">{{ n }}</p>{% endfor %}
+
+<h2 id="subjects">Subjects</h2>
+<div class="wrap"><table>
+<tr><th>subject</th><th class="num">recordings</th><th>interictal</th><th class="num">seizures</th><th>labels known</th>
+{% if sz and sz.has_expert %}<th class="num">median consensus AUC</th>{% endif %}</tr>
+{% for s in subjects %}
+<tr><td><a href="{{ s.page }}"><strong>{{ s.subject }}</strong></a></td><td class="num">{{ s.n_recordings }}</td>
+<td>{% if s.ii %}{{ s.ii.measures | map("extract", measures_info) | map("first") | join(", ") }}{% endif %}</td>
+<td class="num">{{ s.n_seizures or "" }}</td><td>{{ s.labels | join(", ") }}</td>
+{% if sz and sz.has_expert %}<td class="num">{% for p in sz.patients if p.subject == s.subject and p.group == "all" %}{{ p.consensus_auc_median | num(2) }}{% endfor %}</td>{% endif %}</tr>
+{% endfor %}
+</table></div>
+
+{# ------------------------------------------------------------------ interictal #}
+{% if ii and ii.subjects %}
+<h2 id="interictal">Interictal Biomarker Mapping</h2>
+<p>Per channel: {% for m in ii.measures %}{{ measures_info[m][0] | lower }} ({{ ii.available[m] }}){{ ", " if not loop.last }}{% endfor %}.
+Each subject's page ranks its channels, maps them, and shows how well each measure separates the channels clinicians labelled.</p>
+{% for n in ii.notes %}<p class="small muted">{{ n }}</p>{% endfor %}
+{% if ii.cohort_auc %}
+<h3>Separation of labelled channels across subjects</h3>
+<div class="wrap"><table style="width:auto">
+<tr><th>measure</th><th>labelled channels</th><th class="num">subjects</th><th class="num">median AUC</th><th class="num">IQR</th><th class="num">range</th><th class="num">AUC &gt; 0.5</th></tr>
+{% for r in ii.cohort_auc %}<tr><td>{{ measures_info[r.measure][0] }}</td><td>{{ targets[r.label] }}</td><td class="num">{{ r.n_subjects }}</td>
+<td class="num"><strong>{{ r.median | num(2) }}</strong></td><td class="num">{{ r.q1 | num(2) }}–{{ r.q3 | num(2) }}</td><td class="num">{{ r.min | num(2) }}–{{ r.max | num(2) }}</td><td class="num">{{ r.n_above }}/{{ r.n_subjects }}</td></tr>{% endfor %}
+</table></div>
+{% if ii.fig_cohort_auc %}<figure><img src="figures/{{ ii.fig_cohort_auc }}" alt="AUC per subject"><figcaption>ROC AUC per subject; 0.5 = chance. Each subject's AUC uses only that subject's channels; no subject's labels were used to build any score (ieeg-normative leaves the subject's own atlas channels out).</figcaption></figure>{% endif %}
+{% endif %}
+{{ M.caveats(ii.measures | map("extract", what_ii) | list) }}
+{% endif %}
+
+{# ------------------------------------------------------------------ seizures #}
+{% if sz %}
+<h2 id="seizures">Seizure Onset Localisation</h2>
+<p>{{ sz.seizures | length }} seizure(s) from {{ sz.patients | selectattr("group", "equalto", "all") | list | length }} patient(s); methods:
+{{ sz.methods | map("extract", method_names) | join(", ") }}.
+{% if sz.has_expert %}Scored against the expert onset channels and onset times.{% else %}No expert onset labels: rankings only, no scores.{% endif %}</p>
+{% if sz.stim_source %}<p class="small muted">Spontaneous vs stimulation-induced from: {{ sz.stim_source | join(", ") }}{% if "task name" in sz.stim_source %} (BIDS task <code>stim&lt;N&gt;</code> / <code>ictal&lt;N&gt;</code>, the naming of the Multi-Expert Seizure Annotation dataset; recordings.csv has no <code>stim_induced</code> column){% endif %}.
+{% if not sz.lvfa_known %}Low-voltage fast activity (LVFA) flags were not among the inputs (no <code>lvfa</code> column in recordings.csv), so there is no LVFA split.{% endif %}</p>{% endif %}
+{% if sz.observations %}<ul class="obs">{% for o in sz.observations %}<li>{{ o }}</li>{% endfor %}</ul>{% endif %}
+<h3>Summary</h3>
+<div class="wrap"><table>
+<tr><th>group</th><th class="num">seizures</th>{% for m in sz.methods %}<th class="num">{{ method_names[m] }}<br><span class="muted small">median AUC</span></th>{% endfor %}<th class="num">|onset error|<br><span class="muted small">median</span></th><th class="num">onset error<br><span class="muted small">median</span></th><th class="num">detected in tolerance</th></tr>
+{% for r in sz.cohort %}<tr><td><strong>{{ r.group }}</strong></td><td class="num">{{ r.n_seizures }}</td>{% for m in sz.methods %}<td class="num">{{ r[m ~ "_auc_median"] | num(2) }}</td>{% endfor %}<td class="num">{{ r.abs_onset_error_median_s | num(1) }}{% if r.abs_onset_error_median_s is not none %} s{% endif %}</td><td class="num">{{ r.onset_error_median_s | sec(1) }}</td><td class="num">{{ r.detected_within_tolerance or "–" }}</td></tr>{% endfor %}
+</table></div>
+<h3>Per patient</h3>
+<div class="wrap"><table>
+<tr><th>patient</th><th>group</th><th class="num">seizures</th>{% for m in sz.methods %}<th class="num">{{ method_names[m] }} AUC</th>{% endfor %}<th class="num">|onset error|</th><th class="num">detected in tolerance</th></tr>
+{% for r in sz.patients %}<tr{% if r.group != "all" %} class="small"{% endif %}><td>{% if r.group == "all" %}<a href="{{ page_name(r.subject) }}"><strong>{{ r.subject }}</strong></a>{% endif %}</td><td>{{ r.group }}</td><td class="num">{{ r.n_seizures }}</td>{% for m in sz.methods %}<td class="num">{{ r[m ~ "_auc_median"] | num(2) }}</td>{% endfor %}<td class="num">{{ r.abs_onset_error_median_s | num(1) }}</td><td class="num">{{ r.detected_within_tolerance or "–" }}</td></tr>{% endfor %}
+</table></div>
+<p class="small muted">Medians over the patient's seizures. AUC of each method's channel ranking against the expert onset channels of that seizure. Onset error = detected − expert onset (seconds). "Detected in tolerance" from seizure-consensus's SzCORE event scoring.</p>
+<div class="grid">
+{% if sz.fig_aucs %}<figure><img src="figures/{{ sz.fig_aucs }}" alt="AUC per seizure"><figcaption>AUC per seizure and method.</figcaption></figure>{% endif %}
+{% if sz.fig_errors %}<figure><img src="figures/{{ sz.fig_errors }}" alt="Onset error per seizure"><figcaption>Detected minus expert onset per seizure.</figcaption></figure>{% endif %}
+</div>
+{{ M.caveats(sz.methods | map("extract", what_sz) | list + ["Expert labels are themselves a consensus of 3–5 clinicians on clips selected around a clinically marked onset; agreement with them measures agreement with visual review, not surgical outcome.", "Clips start 120 s before a known seizure, so detecting the onset here is easier than finding seizures in continuous recordings."] if sz.has_expert else sz.methods | map("extract", what_sz) | list) }}
+{% endif %}
+
+{# ------------------------------------------------------------------ QC #}
+{% if qc %}
+<h2 id="qc">QC</h2>
+<p>Montage{{ "s" if qc.montages | length > 1 }}: {{ qc.montages | join(", ") or "unknown" }}.
+{% if qc.has_qc_csv %}{{ qc.n_bad }} contact(s)/channel(s) marked bad and {{ qc.n_dropped }} dropped by ieeg-prep{% if qc.reasons %} (bad: {% for k, v in qc.reasons.items() %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}){% endif %}.
+In a bipolar montage a pair with a bad contact is left out.{% else %}qc.csv was not among the inputs: bad channels from the _channels.tsv files only.{% endif %}</p>
+{% if qc.parameters %}<p class="small muted">ieeg-prep parameters: {% for k, v in qc.parameters.items() %}<code>{{ k }}={{ v }}</code> {% endfor %}</p>{% endif %}
+{{ M.qc_table(qc.rows) }}
+{% endif %}
+
+{# ------------------------------------------------------------------ methods #}
+<h2 id="methods">Methods &amp; citations</h2>
+<p class="small">Each step below ran with the version and parameters its <code>provenance.json</code> records. Cite the papers of the steps you used.</p>
+{% for a in methods.apps %}
+<div class="card">
+<strong>{{ a.app }}</strong> <span class="muted">– {{ a.step }}</span><br>
+{% for r in a.runs %}<span class="small">version {{ r.version }}{% if r.parameters %}: {% for k, v in r.parameters.items() %}<code>{{ k }}={{ v }}</code> {% endfor %}{% endif %}{% if r.tools %}<br><span class="muted">tools: {% for k, v in r.tools.items() %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}</span>{% endif %}</span><br>{% endfor %}
+{% if a.citations %}<ul class="small">{% for c in a.citations %}<li>{{ c.authors }} {{ c.title }}. <em>{{ c.journal }}</em> {{ c.year }}{% if c.where %};{{ c.where }}{% endif %}. <a href="{{ c.url }}">doi:{{ c.doi }}</a>{% if c.pmid %} PMID {{ c.pmid }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endfor %}
+
+<h2 id="data">Input data</h2>
+{% if credit %}<ul>{% for d in credit %}<li>{{ d.citation }}{% if d.url %} <a href="{{ d.url }}">doi:{{ d.doi }}</a>{% endif %}{% if d.licence %} ({{ d.licence }}){% endif %}</li>{% endfor %}</ul>
+{% else %}<p class="muted">The source dataset is not named in the inputs.</p>{% endif %}
+<p class="small muted">Inputs found per port: {% for k, v in inputs_found.items() %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}.
+Report parameters: {% for k, v in parameters.items() %}<code>{{ k }}={{ v }}</code> {% endfor %}</p>
+{% endblock %}

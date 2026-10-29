@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=https://schemas.pennsieve.io/app-manifest/v1.json
+schemaVersion: "1.0"
+application:
+  name: iEEG Epilepsy Report
+  description: >-
+    The last step of both epilepsy iEEG workflows (Interictal Biomarker Mapping; Seizure Onset
+    Localisation). It reads whatever upstream outputs it is given and writes an offline HTML report:
+    per subject, channels ranked by spike rate, HFO rate and band-power abnormality with SOZ /
+    resected / onset labels, a channel map on the electrode coordinates, per-electrode rate strips and
+    ROC AUCs against the labels; per seizure, the detected vs expert onset, channels x time of DynaSD,
+    each method's channel ranking (DynaSD, EI, fragility) and the consensus onset zone, agreement
+    between methods and scores against the expert labels, summarised per patient (spontaneous vs
+    stimulation-induced, LVFA when known); QC (bad and dropped channels, montage) and methods with
+    versions, parameters and verified citations. Research use only, not for clinical decisions.
+    Every input is optional.
+  type: processor
+  tags:
+    - ieeg
+    - seeg
+    - electrophysiology
+    - epilepsy
+    - neuroscience
+    - report
+    - statistics
+runtime:
+  cpu: 1024
+  memory: 1024
+  # standard (ECS) by default; a workflow can run this light step as a Lambda function instead
+  # (the image serves both, see processor/entry.py). Measured on the 24 demo seizure clips with
+  # every input (both workflows): 322 MB peak (cgroup memory.peak), 13 s; as a Lambda function
+  # through the runtime interface emulator 253 MB, 15 s (amd64 emulation on an M-series Mac).
+  computeTypes:
+    - standard
+    - lambda
+  timeoutSeconds: 900
+parameters:
+  - name: REPORT_TITLE
+    type: string
+    description: Title of the report pages.
+    defaultValue: "Epilepsy iEEG Report"
+  - name: TOP_K
+    type: integer
+    description: >-
+      Size of a method's selected onset zone when the report scores it itself (no seizure-consensus
+      output), and k of the top-k overlap between methods. 1 to 200.
+    defaultValue: 10
+  - name: MAX_CHANNELS
+    type: integer
+    description: >-
+      Channels listed per subject and drawn per seizure on the pages (the tables hold all of them).
+      5 to 500.
+    defaultValue: 30
+# Each input in its own folder (placement: subfolder) when linked; without links the tables are
+# found by name anywhere under INPUT_DIR. methods is a fan-in: link seizure-dynasd, seizure-ei and
+# seizure-fragility to it.
+inputs:
+  - name: ieeg
+    description: >-
+      ieeg-prep's ieeg output (recordings.csv, _channels.tsv, _events.tsv): subjects, expert onset
+      times, SOZ/resected/onset labels, coordinates, montage. Without it, recordings are named from the
+      tables and no labels are known.
+    mediaTypes: [text/csv, text/tab-separated-values, application/json, application/octet-stream]
+    placement: subfolder
+    required: false
+  - name: qc
+    description: ieeg-prep's qc output (qc.csv, <recording_id>.png); bad and dropped channels with reasons.
+    mediaTypes: [text/csv, image/png, application/json]
+    placement: subfolder
+    required: false
+  - name: spikes
+    description: ieeg-spikes output (spike_rates.csv); spike rate per channel.
+    mediaTypes: [text/csv, application/json]
+    placement: subfolder
+    required: false
+  - name: bandpower
+    description: ieeg-bandpower output (bandpower.csv); listed under methods (the abnormality is what the report maps).
+    mediaTypes: [text/csv, application/json]
+    placement: subfolder
+    required: false
+  - name: hfo
+    description: ieeg-hfo output (hfo_rates.csv); ripple and fast-ripple rate per channel.
+    mediaTypes: [text/csv, application/json]
+    placement: subfolder
+    required: false
+  - name: abnormality
+    description: ieeg-normative output (channel_abnormality.csv); band-power abnormality (max |z|) per channel.
+    mediaTypes: [text/csv, application/json]
+    placement: subfolder
+    required: false
+  - name: onsets
+    description: >-
+      seizure-dynasd output (seizure_onsets.csv, channel_onsets.csv; optionally channel_scores.csv,
+      DynaSD scores over time, for a channels x time heatmap).
+    mediaTypes: [text/csv, application/json]
+    placement: subfolder
+    required: false
+  - name: methods
+    description: >-
+      The method outputs (fan-in): seizure-ei (ei.csv), seizure-fragility (fragility.csv), and
+      seizure-dynasd if not linked to onsets.
+    mediaTypes: [text/csv, application/json]
+    placement: subfolder
+    required: false
+  - name: onset-zone
+    description: seizure-consensus output (onset_zone.csv, scores.csv); consensus onset zone and scores against the expert labels.
+    mediaTypes: [text/csv, application/json]
+    placement: subfolder
+    required: false
+# Two outputs: each is written to its own folder, OUTPUT_DIR/<name>/.
+outputs:
+  - name: report
+    description: >-
+      index.html (cohort page) and sub-<subject>.html (one per subject) with figures/*.png and
+      provenance.json. Self-contained: no scripts, no external resources; open index.html from the folder.
+    mediaTypes: [text/html, image/png, application/json]
+  - name: tables
+    description: >-
+      interictal_channels.csv, interictal_auc.csv, seizure_onsets.csv, seizure_channels.csv,
+      seizure_scores.csv, method_agreement.csv, patient_summary.csv, qc_channels.csv (each when its
+      inputs exist), metrics.json (the numbers behind the pages), provenance.json.
+    mediaTypes: [text/csv, application/json]

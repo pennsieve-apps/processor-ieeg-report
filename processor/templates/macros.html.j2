@@ -1,0 +1,115 @@
+{% macro ruo() %}
+<div class="ruo"><strong>Research use only, not for clinical decisions.</strong>
+The numbers on this page come from automated detectors and models run on the recordings given. They have not been reviewed by a
+clinician, they can be wrong in ways the page cannot show, and they must not be used to plan surgery or treatment.</div>
+{% endmacro %}
+
+{% macro errors_box(errors) %}
+{% if errors %}
+<div class="error"><strong>Some sections could not be rendered</strong> (their inputs were present but unreadable):
+<ul>{% for e in errors %}<li>{{ e.section }}: {{ e.error }}</li>{% endfor %}</ul></div>
+{% endif %}
+{% endmacro %}
+
+{% macro caveats(items, heading="What this can and cannot tell") %}
+{% if items %}<div class="caveats"><strong>{{ heading }}</strong><ul>{% for c in items %}<li>{{ c }}</li>{% endfor %}</ul></div>{% endif %}
+{% endmacro %}
+
+{% macro labels(soz, resected) %}{% if soz %}<span class="tag soz">SOZ</span> {% endif %}{% if resected %}<span class="tag res">resected</span>{% endif %}{% endmacro %}
+
+{# ---------------------------------------------------------------- interictal, one subject #}
+{% macro interictal_subject(s, names, measures_info, targets, max_channels) %}
+<p class="small muted">{{ s.n_channels }} channels{% if s.n_recordings %} from {{ s.n_recordings }} recording(s){% endif %};
+rates pooled over recordings (events ÷ minutes analysed). Coordinates: {{ s.n_coords }} channel(s){% if s.spaces %}, space {{ s.spaces | join(", ") }}{% endif %}.
+Labels: {{ s.label_counts.soz }} SOZ, {{ s.label_counts.resected }} resected{% if s.label_counts.onset_any %}, {{ s.label_counts.onset_any }} expert seizure-onset channel(s) in at least one seizure{% endif %}.</p>
+{% for n in s.notes %}<p class="small muted">{{ n }}</p>{% endfor %}
+{% if s.observations %}<ul class="obs">{% for o in s.observations %}<li>{{ o }}</li>{% endfor %}</ul>{% endif %}
+
+<h4>Channels ranked by {{ measures_info[s.measures[0]][0] | lower if s.measures else "name" }}</h4>
+<div class="wrap"><table>
+  <tr><th>channel</th><th>electrode</th><th>region</th>
+  {% for m in s.measures %}<th class="num">{{ measures_info[m][0] }}<br><span class="muted small">{{ measures_info[m][1] }} (rank)</span></th>{% endfor %}
+  <th>labels</th><th class="num">onset<br><span class="muted small">seizures</span></th></tr>
+  {% for r in s.rows %}
+  <tr><td><strong>{{ r.channel }}</strong></td><td>{{ r.electrode }}</td><td class="small">{{ r.roi }}</td>
+  {% for m in s.measures %}<td class="num">{{ r["values"][m] | num(2) }} <span class="muted small">({{ r.ranks[m] if r.ranks[m] is not none else "–" }})</span></td>{% endfor %}
+  <td>{{ labels(r.soz, r.resected) }}</td><td class="num">{{ r.onset }}</td></tr>
+  {% endfor %}
+</table></div>
+{% if s.n_channels > s.rows | length %}<p class="small muted">Top {{ s.rows | length }} of {{ s.n_channels }}; every channel is in <code>tables/interictal_channels.csv</code>.</p>{% endif %}
+
+{% if s.fig_map %}
+<figure><img src="figures/{{ s.fig_map }}" alt="Channel map of {{ s.subject }}">
+<figcaption>Channel map: each channel at its coordinates, three projections, coloured by each measure (darker = higher).
+Rings mark {{ "SOZ" if s.label_counts.soz else "expert seizure-onset" }} channels, squares resected channels, crosses channels the measure did not score.
+The three highest channels are named.</figcaption></figure>
+{% endif %}
+{% if s.fig_strips %}
+<figure><img src="figures/{{ s.fig_strips }}" alt="Rates per electrode of {{ s.subject }}">
+<figcaption>Rates per electrode, contacts in order along each electrode. Markers below the bars: ring = {{ "SOZ" if s.label_counts.soz else "seizure onset" }}, square = resected.</figcaption></figure>
+{% endif %}
+{% if s.aucs %}
+<h4>How well each measure separates the labelled channels</h4>
+<div class="wrap"><table style="width:auto">
+  <tr><th>measure</th><th>labelled channels</th><th class="num">AUC</th><th class="num">labelled</th><th class="num">others</th></tr>
+  {% for a in s.aucs %}<tr><td>{{ measures_info[a.measure][0] }}</td><td>{{ targets[a.label] }}</td><td class="num"><strong>{{ a.auc | num(2) }}</strong></td><td class="num">{{ a.n_positive }}</td><td class="num">{{ a.n_negative }}</td></tr>{% endfor %}
+</table></div>
+<p class="small muted">ROC AUC = the probability that a labelled channel scores higher than an unlabelled one (0.5 = chance, 1 = perfect separation, below 0.5 = labelled channels score lower). With few labelled channels one AUC is uncertain by ±0.1–0.2.</p>
+{% if s.fig_roc %}<figure><img src="figures/{{ s.fig_roc }}" alt="ROC curves of {{ s.subject }}"><figcaption>ROC curves per measure; the diagonal is chance.</figcaption></figure>{% endif %}
+{% else %}
+<p class="muted">No SOZ, resected or seizure-onset labels for this subject: no ROC.</p>
+{% endif %}
+{% endmacro %}
+
+{# ---------------------------------------------------------------- one seizure #}
+{% macro seizure_block(z, method_names, top_k) %}
+<h3 id="{{ z.recording_id }}">{{ z.task or z.recording_id }}{% if z.stim_induced is true %} <span class="tag">stimulation-induced</span>{% elif z.stim_induced is false %} <span class="tag">spontaneous</span>{% endif %}{% if z.lvfa is true %} <span class="tag">LVFA</span>{% elif z.lvfa is false %} <span class="tag">no LVFA</span>{% endif %}</h3>
+<p class="small muted"><code>{{ z.recording_id }}</code>{% if z.stim_source == "task name" %}; seizure type from the BIDS task name{% endif %}</p>
+<dl class="kv">
+  <dt>Expert onset</dt><dd>{{ z.expert_onset_s | num(2) }}{% if z.expert_onset_s is not none %} s{% else %} (unknown){% endif %}</dd>
+  <dt>Detected onset</dt><dd>{{ z.detected_onset_s | num(2) }}{% if z.detected_onset_s is not none %} s <span class="muted small">({{ z.detected_source }})</span>{% endif %}</dd>
+  {% if z.onset_error_s is not none %}<dt>Difference</dt><dd><strong>{{ z.onset_error_s | sec(2) }}</strong> <span class="muted small">(detected − expert; negative = earlier)</span></dd>{% endif %}
+  <dt>Channels</dt><dd>{{ z.n_channels }}{% if z.n_expert_onset %}, {{ z.n_expert_onset }} expert onset channel(s){% endif %}</dd>
+  {% if z.zone %}<dt>Onset zone</dt><dd>{% for c in z.zone %}<span class="tag zone">{{ c }}</span> {% endfor %}<br><span class="muted small">{{ z.zone_source }}</span></dd>{% endif %}
+</dl>
+{% if z.figure %}
+<figure><img src="figures/{{ z.figure }}" alt="Onset overview of {{ z.recording_id }}">
+<figcaption>{% if z.heatmap %}DynaSD scores over time (channel_scores.csv) for the top channels{% else %}DynaSD scores over time were not among the inputs, so there is no heat map: each bar starts at the channel's DynaSD onset, shaded by its score, and the ranked table below lists the channels{% endif %};
+solid line = expert onset, dashed = detected onset. Right: each method's rank of the channel. ● and bold = expert onset channel.</figcaption></figure>
+{% endif %}
+{% if z.rows %}
+<details{% if not z.heatmap %} open{% endif %}><summary>Channel ranking ({{ z.rows | length }} of {{ z.n_channels }}, by consensus rank when available)</summary>
+<div class="wrap"><table>
+<tr><th>channel</th><th>region</th>{% for m in z.methods %}<th class="num">{{ method_names[m] }}</th>{% endfor %}<th class="num">DynaSD onset</th><th>expert</th><th>zone</th></tr>
+{% for r in z.rows %}<tr><td><strong>{{ r.channel }}</strong></td><td class="small">{{ r.roi }}</td>{% for m in z.methods %}<td class="num">{{ r.ranks[m] if r.ranks[m] is not none else "–" }}</td>{% endfor %}<td class="num">{{ r.dynasd_onset_s | num(1) }}</td><td>{% if r.expert is true %}<span class="tag soz">onset</span>{% endif %}</td><td>{% if r.zone %}<span class="tag zone">zone</span>{% endif %}</td></tr>{% endfor %}
+</table></div></details>
+{% endif %}
+{% if z.agreement %}
+<h4>Agreement between methods</h4>
+<table style="width:auto"><tr><th>methods</th><th class="num">Spearman ρ</th><th class="num">top-{{ top_k }} overlap</th><th class="num">channels</th></tr>
+{% for a in z.agreement %}<tr><td>{{ method_names[a.a] }} vs {{ method_names[a.b] }}</td><td class="num">{{ a.spearman | num(2) }}</td><td class="num">{{ a.top_k_overlap | pct }}</td><td class="num">{{ a.n }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+{% if z.scores %}
+<h4>Scores against the expert onset channels</h4>
+<table style="width:auto"><tr><th>method</th><th class="num">AUC</th><th class="num">precision</th><th class="num">recall</th><th class="num">F1</th><th class="num">R-precision</th><th class="num">selected</th></tr>
+{% for r in z.scores %}<tr><td>{{ method_names[r.method] }}</td><td class="num"><strong>{{ r.auc | num(2) }}</strong></td><td class="num">{{ r.precision | num(2) }}</td><td class="num">{{ r.recall | num(2) }}</td><td class="num">{{ r.f1 | num(2) }}</td><td class="num">{{ r.r_precision | num(2) }}</td><td class="num">{{ r.n_selected | num(0) }}</td></tr>{% endfor %}
+</table>
+<p class="small muted">From {{ z.scores_source }}. Precision/recall of each method's own selection (top {{ top_k }} unless seizure-consensus chose otherwise); R-precision = precision of the top N channels, N = number of expert onset channels.</p>
+{% elif z.n_expert_onset == 0 %}
+<p class="muted small">No expert onset channels for this seizure: no scores.</p>
+{% endif %}
+{% endmacro %}
+
+{# ---------------------------------------------------------------- QC table #}
+{% macro qc_table(rows, show_subject=true) %}
+<div class="wrap"><table>
+<tr>{% if show_subject %}<th>subject</th>{% endif %}<th>recording</th><th>montage</th><th class="num">Hz</th><th class="num">min</th><th class="num">channels kept</th><th>bad</th><th>dropped</th></tr>
+{% for r in rows %}
+<tr>{% if show_subject %}<td>{{ r.subject }}</td>{% endif %}<td class="small"><code>{{ r.recording_id }}</code></td><td>{{ r.montage }}</td><td class="num">{{ r.sfreq | num(0) }}</td><td class="num">{{ (r.duration_s / 60) | num(1) if r.duration_s else "–" }}</td>
+<td class="num">{{ r.n_good if r.n_good is not none else "–" }}{% if r.n_channels is not none and r.n_channels != r.n_good %} / {{ r.n_channels }}{% endif %}</td>
+<td class="small">{% if r.bad %}<details><summary>{{ r.bad | length }}</summary>{% for b in r.bad %}{{ b.channel }}: {{ b.reason }}<br>{% endfor %}</details>{% else %}0{% endif %}</td>
+<td class="small">{% if r.dropped %}<details><summary>{{ r.dropped | length }}</summary>{% for b in r.dropped %}{{ b.channel }}: {{ b.reason }}<br>{% endfor %}</details>{% else %}0{% endif %}</td></tr>
+{% endfor %}
+</table></div>
+{% endmacro %}
