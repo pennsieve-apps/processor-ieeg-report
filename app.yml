@@ -24,7 +24,8 @@ application:
     - statistics
 runtime:
   cpu: 1024
-  memory: 1024
+  # 1 vCPU allows 2-8 GiB on Fargate (1 GiB is not a valid size); the Lambda path uses this too.
+  memory: 2048
   # standard (ECS) by default; a workflow can run this light step as a Lambda function instead
   # (the image serves both, see processor/entry.py). Measured on the 24 demo seizure clips with
   # every input (both workflows): 322 MB peak (cgroup memory.peak), 13 s; as a Lambda function

@@ -40,7 +40,7 @@ TABLES: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "bandpower.csv": ("bandpower", ("recording_id", "channel", "band", "rel_power"), ("recording_id", "channel", "band")),
     "hfo_rates.csv": ("hfo", ("recording_id", "channel", "rate_per_min"), ("recording_id", "channel", "band")),
     "channel_abnormality.csv": ("abnormality", ("recording_id", "channel", "max_abs_z"), ("recording_id", "channel")),
-    "abnormality.csv": ("abnormality", ("recording_id", "channel", "band", "abs_z"), ("recording_id", "channel", "band")),
+    "abnormality.csv": ("abnormality", ("recording_id", "channel", "feature", "abs_z"), ("recording_id", "channel", "feature")),
     "seizure_onsets.csv": ("onsets", ("recording_id", "onset_s"), ("recording_id", "method")),
     "channel_onsets.csv": ("onsets", ("recording_id", "channel", "onset_s"), ("recording_id", "channel", "method")),
     # Optional, not (yet) in conventions.md: DynaSD scores over time, long format.
