@@ -120,3 +120,11 @@ outputs:
       seizure_scores.csv, method_agreement.csv, patient_summary.csv, qc_channels.csv (each when its
       inputs exist), metrics.json (the numbers behind the pages), provenance.json.
     mediaTypes: [text/csv, application/json]
+
+# How a release is tested before it is made public: the inputs a review run uses.
+# See app-deploy-service docs/app-manifest-review.md.
+review:
+  version: 1
+  generate:
+    command: python -m tests.make_fixture "$REVIEW_INPUT_DIR" --layout both
+    root: linked
